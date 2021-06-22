@@ -1,6 +1,6 @@
 {
   "name": "@s25g5d4/numjs",
-  "version": "0.16.0",
+  "version": "1.0.0",
   "description": "Like NumPy, in JavaScript. Removed images functions",
   "main": "src/index.js",
   "directories": {
