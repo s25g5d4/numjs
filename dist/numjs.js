@@ -66,7 +66,8 @@ function toByteArray (b64) {
     ? validLen - 4
     : validLen
 
-  for (var i = 0; i < len; i += 4) {
+  var i
+  for (i = 0; i < len; i += 4) {
     tmp =
       (revLookup[b64.charCodeAt(i)] << 18) |
       (revLookup[b64.charCodeAt(i + 1)] << 12) |
@@ -125,9 +126,7 @@ function fromByteArray (uint8) {
 
   // go through the array every three bytes, we'll deal with trailing stuff later
   for (var i = 0, len2 = len - extraBytes; i < len2; i += maxChunkLength) {
-    parts.push(encodeChunk(
-      uint8, i, (i + maxChunkLength) > len2 ? len2 : (i + maxChunkLength)
-    ))
+    parts.push(encodeChunk(uint8, i, (i + maxChunkLength) > len2 ? len2 : (i + maxChunkLength)))
   }
 
   // pad the end with zeros, but make sure to not forget the extra bytes
@@ -358,6 +357,7 @@ exports.nextCombination = function(v) {
 
 
 },{}],3:[function(require,module,exports){
+(function (Buffer){(function (){
 /*!
  * The buffer module from node.js, for the browser.
  *
@@ -406,7 +406,7 @@ function typedArraySupport () {
   // Can typed array instances can be augmented?
   try {
     var arr = new Uint8Array(1)
-    arr.__proto__ = {__proto__: Uint8Array.prototype, foo: function () { return 42 }}
+    arr.__proto__ = { __proto__: Uint8Array.prototype, foo: function () { return 42 } }
     return arr.foo() === 42
   } catch (e) {
     return false
@@ -414,26 +414,24 @@ function typedArraySupport () {
 }
 
 Object.defineProperty(Buffer.prototype, 'parent', {
+  enumerable: true,
   get: function () {
-    if (!(this instanceof Buffer)) {
-      return undefined
-    }
+    if (!Buffer.isBuffer(this)) return undefined
     return this.buffer
   }
 })
 
 Object.defineProperty(Buffer.prototype, 'offset', {
+  enumerable: true,
   get: function () {
-    if (!(this instanceof Buffer)) {
-      return undefined
-    }
+    if (!Buffer.isBuffer(this)) return undefined
     return this.byteOffset
   }
 })
 
 function createBuffer (length) {
   if (length > K_MAX_LENGTH) {
-    throw new RangeError('Invalid typed array length')
+    throw new RangeError('The value "' + length + '" is invalid for option "size"')
   }
   // Return an augmented `Uint8Array` instance
   var buf = new Uint8Array(length)
@@ -455,8 +453,8 @@ function Buffer (arg, encodingOrOffset, length) {
   // Common case.
   if (typeof arg === 'number') {
     if (typeof encodingOrOffset === 'string') {
-      throw new Error(
-        'If encoding is specified then the first argument must be a string'
+      throw new TypeError(
+        'The "string" argument must be of type string. Received type number'
       )
     }
     return allocUnsafe(arg)
@@ -465,7 +463,7 @@ function Buffer (arg, encodingOrOffset, length) {
 }
 
 // Fix subarray() in ES2016. See: https://github.com/feross/buffer/pull/97
-if (typeof Symbol !== 'undefined' && Symbol.species &&
+if (typeof Symbol !== 'undefined' && Symbol.species != null &&
     Buffer[Symbol.species] === Buffer) {
   Object.defineProperty(Buffer, Symbol.species, {
     value: null,
@@ -478,19 +476,51 @@ if (typeof Symbol !== 'undefined' && Symbol.species &&
 Buffer.poolSize = 8192 // not used by this implementation
 
 function from (value, encodingOrOffset, length) {
-  if (typeof value === 'number') {
-    throw new TypeError('"value" argument must not be a number')
-  }
-
-  if (isArrayBuffer(value) || (value && isArrayBuffer(value.buffer))) {
-    return fromArrayBuffer(value, encodingOrOffset, length)
-  }
-
   if (typeof value === 'string') {
     return fromString(value, encodingOrOffset)
   }
 
-  return fromObject(value)
+  if (ArrayBuffer.isView(value)) {
+    return fromArrayLike(value)
+  }
+
+  if (value == null) {
+    throw TypeError(
+      'The first argument must be one of type string, Buffer, ArrayBuffer, Array, ' +
+      'or Array-like Object. Received type ' + (typeof value)
+    )
+  }
+
+  if (isInstance(value, ArrayBuffer) ||
+      (value && isInstance(value.buffer, ArrayBuffer))) {
+    return fromArrayBuffer(value, encodingOrOffset, length)
+  }
+
+  if (typeof value === 'number') {
+    throw new TypeError(
+      'The "value" argument must not be of type number. Received type number'
+    )
+  }
+
+  var valueOf = value.valueOf && value.valueOf()
+  if (valueOf != null && valueOf !== value) {
+    return Buffer.from(valueOf, encodingOrOffset, length)
+  }
+
+  var b = fromObject(value)
+  if (b) return b
+
+  if (typeof Symbol !== 'undefined' && Symbol.toPrimitive != null &&
+      typeof value[Symbol.toPrimitive] === 'function') {
+    return Buffer.from(
+      value[Symbol.toPrimitive]('string'), encodingOrOffset, length
+    )
+  }
+
+  throw new TypeError(
+    'The first argument must be one of type string, Buffer, ArrayBuffer, Array, ' +
+    'or Array-like Object. Received type ' + (typeof value)
+  )
 }
 
 /**
@@ -514,7 +544,7 @@ function assertSize (size) {
   if (typeof size !== 'number') {
     throw new TypeError('"size" argument must be of type number')
   } else if (size < 0) {
-    throw new RangeError('"size" argument must not be negative')
+    throw new RangeError('The value "' + size + '" is invalid for option "size"')
   }
 }
 
@@ -629,20 +659,16 @@ function fromObject (obj) {
     return buf
   }
 
-  if (obj) {
-    if (ArrayBuffer.isView(obj) || 'length' in obj) {
-      if (typeof obj.length !== 'number' || numberIsNaN(obj.length)) {
-        return createBuffer(0)
-      }
-      return fromArrayLike(obj)
+  if (obj.length !== undefined) {
+    if (typeof obj.length !== 'number' || numberIsNaN(obj.length)) {
+      return createBuffer(0)
     }
-
-    if (obj.type === 'Buffer' && Array.isArray(obj.data)) {
-      return fromArrayLike(obj.data)
-    }
+    return fromArrayLike(obj)
   }
 
-  throw new TypeError('The first argument must be one of type string, Buffer, ArrayBuffer, Array, or Array-like Object.')
+  if (obj.type === 'Buffer' && Array.isArray(obj.data)) {
+    return fromArrayLike(obj.data)
+  }
 }
 
 function checked (length) {
@@ -663,12 +689,17 @@ function SlowBuffer (length) {
 }
 
 Buffer.isBuffer = function isBuffer (b) {
-  return b != null && b._isBuffer === true
+  return b != null && b._isBuffer === true &&
+    b !== Buffer.prototype // so Buffer.isBuffer(Buffer.prototype) will be false
 }
 
 Buffer.compare = function compare (a, b) {
+  if (isInstance(a, Uint8Array)) a = Buffer.from(a, a.offset, a.byteLength)
+  if (isInstance(b, Uint8Array)) b = Buffer.from(b, b.offset, b.byteLength)
   if (!Buffer.isBuffer(a) || !Buffer.isBuffer(b)) {
-    throw new TypeError('Arguments must be Buffers')
+    throw new TypeError(
+      'The "buf1", "buf2" arguments must be one of type Buffer or Uint8Array'
+    )
   }
 
   if (a === b) return 0
@@ -729,7 +760,7 @@ Buffer.concat = function concat (list, length) {
   var pos = 0
   for (i = 0; i < list.length; ++i) {
     var buf = list[i]
-    if (ArrayBuffer.isView(buf)) {
+    if (isInstance(buf, Uint8Array)) {
       buf = Buffer.from(buf)
     }
     if (!Buffer.isBuffer(buf)) {
@@ -745,15 +776,19 @@ function byteLength (string, encoding) {
   if (Buffer.isBuffer(string)) {
     return string.length
   }
-  if (ArrayBuffer.isView(string) || isArrayBuffer(string)) {
+  if (ArrayBuffer.isView(string) || isInstance(string, ArrayBuffer)) {
     return string.byteLength
   }
   if (typeof string !== 'string') {
-    string = '' + string
+    throw new TypeError(
+      'The "string" argument must be one of type string, Buffer, or ArrayBuffer. ' +
+      'Received type ' + typeof string
+    )
   }
 
   var len = string.length
-  if (len === 0) return 0
+  var mustMatch = (arguments.length > 2 && arguments[2] === true)
+  if (!mustMatch && len === 0) return 0
 
   // Use a for loop to avoid recursion
   var loweredCase = false
@@ -765,7 +800,6 @@ function byteLength (string, encoding) {
         return len
       case 'utf8':
       case 'utf-8':
-      case undefined:
         return utf8ToBytes(string).length
       case 'ucs2':
       case 'ucs-2':
@@ -777,7 +811,9 @@ function byteLength (string, encoding) {
       case 'base64':
         return base64ToBytes(string).length
       default:
-        if (loweredCase) return utf8ToBytes(string).length // assume utf8
+        if (loweredCase) {
+          return mustMatch ? -1 : utf8ToBytes(string).length // assume utf8
+        }
         encoding = ('' + encoding).toLowerCase()
         loweredCase = true
     }
@@ -924,16 +960,20 @@ Buffer.prototype.equals = function equals (b) {
 Buffer.prototype.inspect = function inspect () {
   var str = ''
   var max = exports.INSPECT_MAX_BYTES
-  if (this.length > 0) {
-    str = this.toString('hex', 0, max).match(/.{2}/g).join(' ')
-    if (this.length > max) str += ' ... '
-  }
+  str = this.toString('hex', 0, max).replace(/(.{2})/g, '$1 ').trim()
+  if (this.length > max) str += ' ... '
   return '<Buffer ' + str + '>'
 }
 
 Buffer.prototype.compare = function compare (target, start, end, thisStart, thisEnd) {
+  if (isInstance(target, Uint8Array)) {
+    target = Buffer.from(target, target.offset, target.byteLength)
+  }
   if (!Buffer.isBuffer(target)) {
-    throw new TypeError('Argument must be a Buffer')
+    throw new TypeError(
+      'The "target" argument must be one of type Buffer or Uint8Array. ' +
+      'Received type ' + (typeof target)
+    )
   }
 
   if (start === undefined) {
@@ -1012,7 +1052,7 @@ function bidirectionalIndexOf (buffer, val, byteOffset, encoding, dir) {
   } else if (byteOffset < -0x80000000) {
     byteOffset = -0x80000000
   }
-  byteOffset = +byteOffset  // Coerce to Number.
+  byteOffset = +byteOffset // Coerce to Number.
   if (numberIsNaN(byteOffset)) {
     // byteOffset: it it's undefined, null, NaN, "foo", etc, search whole buffer
     byteOffset = dir ? 0 : (buffer.length - 1)
@@ -1264,8 +1304,8 @@ function utf8Slice (buf, start, end) {
     var codePoint = null
     var bytesPerSequence = (firstByte > 0xEF) ? 4
       : (firstByte > 0xDF) ? 3
-      : (firstByte > 0xBF) ? 2
-      : 1
+        : (firstByte > 0xBF) ? 2
+          : 1
 
     if (i + bytesPerSequence <= end) {
       var secondByte, thirdByte, fourthByte, tempCodePoint
@@ -1928,7 +1968,7 @@ Buffer.prototype.fill = function fill (val, start, end, encoding) {
   } else {
     var bytes = Buffer.isBuffer(val)
       ? val
-      : new Buffer(val, encoding)
+      : Buffer.from(val, encoding)
     var len = bytes.length
     if (len === 0) {
       throw new TypeError('The value "' + val +
@@ -2083,19 +2123,21 @@ function blitBuffer (src, dst, offset, length) {
   return i
 }
 
-// ArrayBuffers from another context (i.e. an iframe) do not pass the `instanceof` check
-// but they should be treated as valid. See: https://github.com/feross/buffer/issues/166
-function isArrayBuffer (obj) {
-  return obj instanceof ArrayBuffer ||
-    (obj != null && obj.constructor != null && obj.constructor.name === 'ArrayBuffer' &&
-      typeof obj.byteLength === 'number')
+// ArrayBuffer or Uint8Array objects from other contexts (i.e. iframes) do not pass
+// the `instanceof` check but they should be treated as of that type.
+// See: https://github.com/feross/buffer/issues/166
+function isInstance (obj, type) {
+  return obj instanceof type ||
+    (obj != null && obj.constructor != null && obj.constructor.name != null &&
+      obj.constructor.name === type.name)
 }
-
 function numberIsNaN (obj) {
+  // For IE11 support
   return obj !== obj // eslint-disable-line no-self-compare
 }
 
-},{"base64-js":1,"ieee754":9}],4:[function(require,module,exports){
+}).call(this)}).call(this,require("buffer").Buffer)
+},{"base64-js":1,"buffer":3,"ieee754":9}],4:[function(require,module,exports){
 "use strict"
 
 var createThunk = require("./lib/thunk.js")
@@ -2566,7 +2608,7 @@ function generateCWiseOp(proc, typesig) {
 }
 module.exports = generateCWiseOp
 
-},{"uniq":22}],6:[function(require,module,exports){
+},{"uniq":20}],6:[function(require,module,exports){
 "use strict"
 
 // The function below is called when constructing a cwise function object, and does the following:
@@ -2707,6 +2749,7 @@ function dupe(count, value) {
 
 module.exports = dupe
 },{}],9:[function(require,module,exports){
+/*! ieee754. BSD-3-Clause License. Feross Aboukhadijeh <https://feross.org/opensource> */
 exports.read = function (buffer, offset, isLE, mLen, nBytes) {
   var e, m
   var eLen = (nBytes * 8) - mLen - 1
@@ -2828,11 +2871,11 @@ function isSlowBuffer (obj) {
 }
 
 },{}],12:[function(require,module,exports){
-(function (global){
+(function (global){(function (){
 /**
  * @license
  * Lodash <https://lodash.com/>
- * Copyright JS Foundation and other contributors <https://js.foundation/>
+ * Copyright OpenJS Foundation and other contributors <https://openjsf.org/>
  * Released under MIT license <https://lodash.com/license>
  * Based on Underscore.js 1.8.3 <http://underscorejs.org/LICENSE>
  * Copyright Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
@@ -2843,14 +2886,15 @@ function isSlowBuffer (obj) {
   var undefined;
 
   /** Used as the semantic version number. */
-  var VERSION = '4.17.10';
+  var VERSION = '4.17.21';
 
   /** Used as the size to enable large array optimizations. */
   var LARGE_ARRAY_SIZE = 200;
 
   /** Error message constants. */
   var CORE_ERROR_TEXT = 'Unsupported core-js use. Try https://npms.io/search?q=ponyfill.',
-      FUNC_ERROR_TEXT = 'Expected a function';
+      FUNC_ERROR_TEXT = 'Expected a function',
+      INVALID_TEMPL_VAR_ERROR_TEXT = 'Invalid `variable` option passed into `_.template`';
 
   /** Used to stand-in for `undefined` hash values. */
   var HASH_UNDEFINED = '__lodash_hash_undefined__';
@@ -2983,10 +3027,11 @@ function isSlowBuffer (obj) {
   var reRegExpChar = /[\\^$.*+?()[\]{}|]/g,
       reHasRegExpChar = RegExp(reRegExpChar.source);
 
-  /** Used to match leading and trailing whitespace. */
-  var reTrim = /^\s+|\s+$/g,
-      reTrimStart = /^\s+/,
-      reTrimEnd = /\s+$/;
+  /** Used to match leading whitespace. */
+  var reTrimStart = /^\s+/;
+
+  /** Used to match a single whitespace character. */
+  var reWhitespace = /\s/;
 
   /** Used to match wrap detail comments. */
   var reWrapComment = /\{(?:\n\/\* \[wrapped with .+\] \*\/)?\n?/,
@@ -2995,6 +3040,18 @@ function isSlowBuffer (obj) {
 
   /** Used to match words composed of alphanumeric characters. */
   var reAsciiWord = /[^\x00-\x2f\x3a-\x40\x5b-\x60\x7b-\x7f]+/g;
+
+  /**
+   * Used to validate the `validate` option in `_.template` variable.
+   *
+   * Forbids characters which could potentially change the meaning of the function argument definition:
+   * - "()," (modification of function parameters)
+   * - "=" (default value)
+   * - "[]{}" (destructuring of function parameters)
+   * - "/" (beginning of a comment)
+   * - whitespace
+   */
+  var reForbiddenIdentifierChars = /[()=,{}\[\]\/\s]/;
 
   /** Used to match backslashes in property paths. */
   var reEscapeChar = /\\(\\)?/g;
@@ -3107,7 +3164,7 @@ function isSlowBuffer (obj) {
   var reHasUnicode = RegExp('[' + rsZWJ + rsAstralRange  + rsComboRange + rsVarRange + ']');
 
   /** Used to detect strings that need a more robust regexp to match words. */
-  var reHasUnicodeWord = /[a-z][A-Z]|[A-Z]{2,}[a-z]|[0-9][a-zA-Z]|[a-zA-Z][0-9]|[^a-zA-Z0-9 ]/;
+  var reHasUnicodeWord = /[a-z][A-Z]|[A-Z]{2}[a-z]|[0-9][a-zA-Z]|[a-zA-Z][0-9]|[^a-zA-Z0-9 ]/;
 
   /** Used to assign default `context` object properties. */
   var contextProps = [
@@ -3825,6 +3882,19 @@ function isSlowBuffer (obj) {
   }
 
   /**
+   * The base implementation of `_.trim`.
+   *
+   * @private
+   * @param {string} string The string to trim.
+   * @returns {string} Returns the trimmed string.
+   */
+  function baseTrim(string) {
+    return string
+      ? string.slice(0, trimmedEndIndex(string) + 1).replace(reTrimStart, '')
+      : string;
+  }
+
+  /**
    * The base implementation of `_.unary` without support for storing metadata.
    *
    * @private
@@ -4056,20 +4126,6 @@ function isSlowBuffer (obj) {
   }
 
   /**
-   * Gets the value at `key`, unless `key` is "__proto__".
-   *
-   * @private
-   * @param {Object} object The object to query.
-   * @param {string} key The key of the property to get.
-   * @returns {*} Returns the property value.
-   */
-  function safeGet(object, key) {
-    return key == '__proto__'
-      ? undefined
-      : object[key];
-  }
-
-  /**
    * Converts `set` to an array of its values.
    *
    * @private
@@ -4169,6 +4225,21 @@ function isSlowBuffer (obj) {
     return hasUnicode(string)
       ? unicodeToArray(string)
       : asciiToArray(string);
+  }
+
+  /**
+   * Used by `_.trim` and `_.trimEnd` to get the index of the last non-whitespace
+   * character of `string`.
+   *
+   * @private
+   * @param {string} string The string to inspect.
+   * @returns {number} Returns the index of the last non-whitespace character.
+   */
+  function trimmedEndIndex(string) {
+    var index = string.length;
+
+    while (index-- && reWhitespace.test(string.charAt(index))) {}
+    return index;
   }
 
   /**
@@ -5516,16 +5587,10 @@ function isSlowBuffer (obj) {
         value.forEach(function(subValue) {
           result.add(baseClone(subValue, bitmask, customizer, subValue, value, stack));
         });
-
-        return result;
-      }
-
-      if (isMap(value)) {
+      } else if (isMap(value)) {
         value.forEach(function(subValue, key) {
           result.set(key, baseClone(subValue, bitmask, customizer, key, value, stack));
         });
-
-        return result;
       }
 
       var keysFunc = isFull
@@ -6449,8 +6514,8 @@ function isSlowBuffer (obj) {
         return;
       }
       baseFor(source, function(srcValue, key) {
+        stack || (stack = new Stack);
         if (isObject(srcValue)) {
-          stack || (stack = new Stack);
           baseMergeDeep(object, source, key, srcIndex, baseMerge, customizer, stack);
         }
         else {
@@ -6526,7 +6591,7 @@ function isSlowBuffer (obj) {
           if (isArguments(objValue)) {
             newValue = toPlainObject(objValue);
           }
-          else if (!isObject(objValue) || (srcIndex && isFunction(objValue))) {
+          else if (!isObject(objValue) || isFunction(objValue)) {
             newValue = initCloneObject(srcValue);
           }
         }
@@ -6570,8 +6635,21 @@ function isSlowBuffer (obj) {
      * @returns {Array} Returns the new sorted array.
      */
     function baseOrderBy(collection, iteratees, orders) {
+      if (iteratees.length) {
+        iteratees = arrayMap(iteratees, function(iteratee) {
+          if (isArray(iteratee)) {
+            return function(value) {
+              return baseGet(value, iteratee.length === 1 ? iteratee[0] : iteratee);
+            }
+          }
+          return iteratee;
+        });
+      } else {
+        iteratees = [identity];
+      }
+
       var index = -1;
-      iteratees = arrayMap(iteratees.length ? iteratees : [identity], baseUnary(getIteratee()));
+      iteratees = arrayMap(iteratees, baseUnary(getIteratee()));
 
       var result = baseMap(collection, function(value, key, collection) {
         var criteria = arrayMap(iteratees, function(iteratee) {
@@ -6828,6 +6906,10 @@ function isSlowBuffer (obj) {
         var key = toKey(path[index]),
             newValue = value;
 
+        if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+          return object;
+        }
+
         if (index != lastIndex) {
           var objValue = nested[key];
           newValue = customizer ? customizer(objValue, key, nested) : undefined;
@@ -6980,11 +7062,14 @@ function isSlowBuffer (obj) {
      *  into `array`.
      */
     function baseSortedIndexBy(array, value, iteratee, retHighest) {
-      value = iteratee(value);
-
       var low = 0,
-          high = array == null ? 0 : array.length,
-          valIsNaN = value !== value,
+          high = array == null ? 0 : array.length;
+      if (high === 0) {
+        return 0;
+      }
+
+      value = iteratee(value);
+      var valIsNaN = value !== value,
           valIsNull = value === null,
           valIsSymbol = isSymbol(value),
           valIsUndefined = value === undefined;
@@ -8267,7 +8352,7 @@ function isSlowBuffer (obj) {
       return function(number, precision) {
         number = toNumber(number);
         precision = precision == null ? 0 : nativeMin(toInteger(precision), 292);
-        if (precision) {
+        if (precision && nativeIsFinite(number)) {
           // Shift with exponential notation to avoid floating-point issues.
           // See [MDN](https://mdn.io/round#Examples) for more details.
           var pair = (toString(number) + 'e').split('e'),
@@ -8469,10 +8554,11 @@ function isSlowBuffer (obj) {
       if (arrLength != othLength && !(isPartial && othLength > arrLength)) {
         return false;
       }
-      // Assume cyclic values are equal.
-      var stacked = stack.get(array);
-      if (stacked && stack.get(other)) {
-        return stacked == other;
+      // Check that cyclic values are equal.
+      var arrStacked = stack.get(array);
+      var othStacked = stack.get(other);
+      if (arrStacked && othStacked) {
+        return arrStacked == other && othStacked == array;
       }
       var index = -1,
           result = true,
@@ -8634,10 +8720,11 @@ function isSlowBuffer (obj) {
           return false;
         }
       }
-      // Assume cyclic values are equal.
-      var stacked = stack.get(object);
-      if (stacked && stack.get(other)) {
-        return stacked == other;
+      // Check that cyclic values are equal.
+      var objStacked = stack.get(object);
+      var othStacked = stack.get(other);
+      if (objStacked && othStacked) {
+        return objStacked == other && othStacked == object;
       }
       var result = true;
       stack.set(object, other);
@@ -9447,6 +9534,26 @@ function isSlowBuffer (obj) {
         array[length] = isIndex(index, arrLength) ? oldArray[index] : undefined;
       }
       return array;
+    }
+
+    /**
+     * Gets the value at `key`, unless `key` is "__proto__" or "constructor".
+     *
+     * @private
+     * @param {Object} object The object to query.
+     * @param {string} key The key of the property to get.
+     * @returns {*} Returns the property value.
+     */
+    function safeGet(object, key) {
+      if (key === 'constructor' && typeof object[key] === 'function') {
+        return;
+      }
+
+      if (key == '__proto__') {
+        return;
+      }
+
+      return object[key];
     }
 
     /**
@@ -11998,6 +12105,10 @@ function isSlowBuffer (obj) {
      * // The `_.property` iteratee shorthand.
      * _.filter(users, 'active');
      * // => objects for ['barney']
+     *
+     * // Combining several predicates using `_.overEvery` or `_.overSome`.
+     * _.filter(users, _.overSome([{ 'age': 36 }, ['age', 40]]));
+     * // => objects for ['fred', 'barney']
      */
     function filter(collection, predicate) {
       var func = isArray(collection) ? arrayFilter : baseFilter;
@@ -12747,15 +12858,15 @@ function isSlowBuffer (obj) {
      * var users = [
      *   { 'user': 'fred',   'age': 48 },
      *   { 'user': 'barney', 'age': 36 },
-     *   { 'user': 'fred',   'age': 40 },
+     *   { 'user': 'fred',   'age': 30 },
      *   { 'user': 'barney', 'age': 34 }
      * ];
      *
      * _.sortBy(users, [function(o) { return o.user; }]);
-     * // => objects for [['barney', 36], ['barney', 34], ['fred', 48], ['fred', 40]]
+     * // => objects for [['barney', 36], ['barney', 34], ['fred', 48], ['fred', 30]]
      *
      * _.sortBy(users, ['user', 'age']);
-     * // => objects for [['barney', 34], ['barney', 36], ['fred', 40], ['fred', 48]]
+     * // => objects for [['barney', 34], ['barney', 36], ['fred', 30], ['fred', 48]]
      */
     var sortBy = baseRest(function(collection, iteratees) {
       if (collection == null) {
@@ -13242,6 +13353,7 @@ function isSlowBuffer (obj) {
           }
           if (maxing) {
             // Handle invocations in a tight loop.
+            clearTimeout(timerId);
             timerId = setTimeout(timerExpired, wait);
             return invokeFunc(lastCallTime);
           }
@@ -15298,7 +15410,7 @@ function isSlowBuffer (obj) {
       if (typeof value != 'string') {
         return value === 0 ? value : +value;
       }
-      value = value.replace(reTrim, '');
+      value = baseTrim(value);
       var isBinary = reIsBinary.test(value);
       return (isBinary || reIsOctal.test(value))
         ? freeParseInt(value.slice(2), isBinary ? 2 : 8)
@@ -17628,9 +17740,12 @@ function isSlowBuffer (obj) {
       , 'g');
 
       // Use a sourceURL for easier debugging.
+      // The sourceURL gets injected into the source that's eval-ed, so be careful
+      // to normalize all kinds of whitespace, so e.g. newlines (and unicode versions of it) can't sneak in
+      // and escape the comment, thus injecting code that gets evaled.
       var sourceURL = '//# sourceURL=' +
-        ('sourceURL' in options
-          ? options.sourceURL
+        (hasOwnProperty.call(options, 'sourceURL')
+          ? (options.sourceURL + '').replace(/\s/g, ' ')
           : ('lodash.templateSources[' + (++templateCounter) + ']')
         ) + '\n';
 
@@ -17663,10 +17778,16 @@ function isSlowBuffer (obj) {
 
       // If `variable` is not specified wrap a with-statement around the generated
       // code to add the data object to the top of the scope chain.
-      var variable = options.variable;
+      var variable = hasOwnProperty.call(options, 'variable') && options.variable;
       if (!variable) {
         source = 'with (obj) {\n' + source + '\n}\n';
       }
+      // Throw an error if a forbidden character was found in `variable`, to prevent
+      // potential command injection attacks.
+      else if (reForbiddenIdentifierChars.test(variable)) {
+        throw new Error(INVALID_TEMPL_VAR_ERROR_TEXT);
+      }
+
       // Cleanup code by stripping empty strings.
       source = (isEvaluating ? source.replace(reEmptyStringLeading, '') : source)
         .replace(reEmptyStringMiddle, '$1')
@@ -17780,7 +17901,7 @@ function isSlowBuffer (obj) {
     function trim(string, chars, guard) {
       string = toString(string);
       if (string && (guard || chars === undefined)) {
-        return string.replace(reTrim, '');
+        return baseTrim(string);
       }
       if (!string || !(chars = baseToString(chars))) {
         return string;
@@ -17815,7 +17936,7 @@ function isSlowBuffer (obj) {
     function trimEnd(string, chars, guard) {
       string = toString(string);
       if (string && (guard || chars === undefined)) {
-        return string.replace(reTrimEnd, '');
+        return string.slice(0, trimmedEndIndex(string) + 1);
       }
       if (!string || !(chars = baseToString(chars))) {
         return string;
@@ -18369,6 +18490,9 @@ function isSlowBuffer (obj) {
      * values against any array or object value, respectively. See `_.isEqual`
      * for a list of supported value comparisons.
      *
+     * **Note:** Multiple values can be checked by combining several matchers
+     * using `_.overSome`
+     *
      * @static
      * @memberOf _
      * @since 3.0.0
@@ -18384,6 +18508,10 @@ function isSlowBuffer (obj) {
      *
      * _.filter(objects, _.matches({ 'a': 4, 'c': 6 }));
      * // => [{ 'a': 4, 'b': 5, 'c': 6 }]
+     *
+     * // Checking for several possible values
+     * _.filter(objects, _.overSome([_.matches({ 'a': 1 }), _.matches({ 'a': 4 })]));
+     * // => [{ 'a': 1, 'b': 2, 'c': 3 }, { 'a': 4, 'b': 5, 'c': 6 }]
      */
     function matches(source) {
       return baseMatches(baseClone(source, CLONE_DEEP_FLAG));
@@ -18397,6 +18525,9 @@ function isSlowBuffer (obj) {
      * **Note:** Partial comparisons will match empty array and empty object
      * `srcValue` values against any array or object value, respectively. See
      * `_.isEqual` for a list of supported value comparisons.
+     *
+     * **Note:** Multiple values can be checked by combining several matchers
+     * using `_.overSome`
      *
      * @static
      * @memberOf _
@@ -18414,6 +18545,10 @@ function isSlowBuffer (obj) {
      *
      * _.find(objects, _.matchesProperty('a', 4));
      * // => { 'a': 4, 'b': 5, 'c': 6 }
+     *
+     * // Checking for several possible values
+     * _.filter(objects, _.overSome([_.matchesProperty('a', 1), _.matchesProperty('a', 4)]));
+     * // => [{ 'a': 1, 'b': 2, 'c': 3 }, { 'a': 4, 'b': 5, 'c': 6 }]
      */
     function matchesProperty(path, srcValue) {
       return baseMatchesProperty(path, baseClone(srcValue, CLONE_DEEP_FLAG));
@@ -18637,6 +18772,10 @@ function isSlowBuffer (obj) {
      * Creates a function that checks if **all** of the `predicates` return
      * truthy when invoked with the arguments it receives.
      *
+     * Following shorthands are possible for providing predicates.
+     * Pass an `Object` and it will be used as an parameter for `_.matches` to create the predicate.
+     * Pass an `Array` of parameters for `_.matchesProperty` and the predicate will be created using them.
+     *
      * @static
      * @memberOf _
      * @since 4.0.0
@@ -18663,6 +18802,10 @@ function isSlowBuffer (obj) {
      * Creates a function that checks if **any** of the `predicates` return
      * truthy when invoked with the arguments it receives.
      *
+     * Following shorthands are possible for providing predicates.
+     * Pass an `Object` and it will be used as an parameter for `_.matches` to create the predicate.
+     * Pass an `Array` of parameters for `_.matchesProperty` and the predicate will be created using them.
+     *
      * @static
      * @memberOf _
      * @since 4.0.0
@@ -18682,6 +18825,9 @@ function isSlowBuffer (obj) {
      *
      * func(NaN);
      * // => false
+     *
+     * var matchesFunc = _.overSome([{ 'a': 1 }, { 'a': 2 }])
+     * var matchesPropertyFunc = _.overSome([['a', 1], ['a', 2]])
      */
     var overSome = createOver(arraySome);
 
@@ -19868,10 +20014,11 @@ function isSlowBuffer (obj) {
     baseForOwn(LazyWrapper.prototype, function(func, methodName) {
       var lodashFunc = lodash[methodName];
       if (lodashFunc) {
-        var key = (lodashFunc.name + ''),
-            names = realNames[key] || (realNames[key] = []);
-
-        names.push({ 'name': methodName, 'func': lodashFunc });
+        var key = lodashFunc.name + '';
+        if (!hasOwnProperty.call(realNames, key)) {
+          realNames[key] = [];
+        }
+        realNames[key].push({ 'name': methodName, 'func': lodashFunc });
       }
     });
 
@@ -19935,7 +20082,7 @@ function isSlowBuffer (obj) {
   }
 }.call(this));
 
-}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+}).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
 },{}],13:[function(require,module,exports){
 'use strict'
 
@@ -20019,7 +20166,7 @@ function ndfft(dir, x, y) {
 }
 
 module.exports = ndfft
-},{"./lib/fft-matrix.js":14,"ndarray":18,"ndarray-ops":17,"typedarray-pool":21}],14:[function(require,module,exports){
+},{"./lib/fft-matrix.js":14,"ndarray":18,"ndarray-ops":17,"typedarray-pool":19}],14:[function(require,module,exports){
 var bits = require('bit-twiddle')
 
 function fft(dir, nrows, ncols, buffer, x_ptr, y_ptr, scratch_ptr) {
@@ -21390,449 +21537,46 @@ function wrappedNDArrayCtor(data, shape, stride, offset) {
 module.exports = wrappedNDArrayCtor
 
 },{"iota-array":10,"is-buffer":11}],19:[function(require,module,exports){
-(function (process){
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-// resolves . and .. elements in a path array with directory names there
-// must be no slashes, empty elements, or device names (c:\) in the array
-// (so also no leading and trailing slashes - it does not distinguish
-// relative and absolute paths)
-function normalizeArray(parts, allowAboveRoot) {
-  // if the path tries to go above the root, `up` ends up > 0
-  var up = 0;
-  for (var i = parts.length - 1; i >= 0; i--) {
-    var last = parts[i];
-    if (last === '.') {
-      parts.splice(i, 1);
-    } else if (last === '..') {
-      parts.splice(i, 1);
-      up++;
-    } else if (up) {
-      parts.splice(i, 1);
-      up--;
-    }
-  }
-
-  // if the path is allowed to go above the root, restore leading ..s
-  if (allowAboveRoot) {
-    for (; up--; up) {
-      parts.unshift('..');
-    }
-  }
-
-  return parts;
-}
-
-// Split a filename into [root, dir, basename, ext], unix version
-// 'root' is just a slash, or nothing.
-var splitPathRe =
-    /^(\/?|)([\s\S]*?)((?:\.{1,2}|[^\/]+?|)(\.[^.\/]*|))(?:[\/]*)$/;
-var splitPath = function(filename) {
-  return splitPathRe.exec(filename).slice(1);
-};
-
-// path.resolve([from ...], to)
-// posix version
-exports.resolve = function() {
-  var resolvedPath = '',
-      resolvedAbsolute = false;
-
-  for (var i = arguments.length - 1; i >= -1 && !resolvedAbsolute; i--) {
-    var path = (i >= 0) ? arguments[i] : process.cwd();
-
-    // Skip empty and invalid entries
-    if (typeof path !== 'string') {
-      throw new TypeError('Arguments to path.resolve must be strings');
-    } else if (!path) {
-      continue;
-    }
-
-    resolvedPath = path + '/' + resolvedPath;
-    resolvedAbsolute = path.charAt(0) === '/';
-  }
-
-  // At this point the path should be resolved to a full absolute path, but
-  // handle relative paths to be safe (might happen when process.cwd() fails)
-
-  // Normalize the path
-  resolvedPath = normalizeArray(filter(resolvedPath.split('/'), function(p) {
-    return !!p;
-  }), !resolvedAbsolute).join('/');
-
-  return ((resolvedAbsolute ? '/' : '') + resolvedPath) || '.';
-};
-
-// path.normalize(path)
-// posix version
-exports.normalize = function(path) {
-  var isAbsolute = exports.isAbsolute(path),
-      trailingSlash = substr(path, -1) === '/';
-
-  // Normalize the path
-  path = normalizeArray(filter(path.split('/'), function(p) {
-    return !!p;
-  }), !isAbsolute).join('/');
-
-  if (!path && !isAbsolute) {
-    path = '.';
-  }
-  if (path && trailingSlash) {
-    path += '/';
-  }
-
-  return (isAbsolute ? '/' : '') + path;
-};
-
-// posix version
-exports.isAbsolute = function(path) {
-  return path.charAt(0) === '/';
-};
-
-// posix version
-exports.join = function() {
-  var paths = Array.prototype.slice.call(arguments, 0);
-  return exports.normalize(filter(paths, function(p, index) {
-    if (typeof p !== 'string') {
-      throw new TypeError('Arguments to path.join must be strings');
-    }
-    return p;
-  }).join('/'));
-};
-
-
-// path.relative(from, to)
-// posix version
-exports.relative = function(from, to) {
-  from = exports.resolve(from).substr(1);
-  to = exports.resolve(to).substr(1);
-
-  function trim(arr) {
-    var start = 0;
-    for (; start < arr.length; start++) {
-      if (arr[start] !== '') break;
-    }
-
-    var end = arr.length - 1;
-    for (; end >= 0; end--) {
-      if (arr[end] !== '') break;
-    }
-
-    if (start > end) return [];
-    return arr.slice(start, end - start + 1);
-  }
-
-  var fromParts = trim(from.split('/'));
-  var toParts = trim(to.split('/'));
-
-  var length = Math.min(fromParts.length, toParts.length);
-  var samePartsLength = length;
-  for (var i = 0; i < length; i++) {
-    if (fromParts[i] !== toParts[i]) {
-      samePartsLength = i;
-      break;
-    }
-  }
-
-  var outputParts = [];
-  for (var i = samePartsLength; i < fromParts.length; i++) {
-    outputParts.push('..');
-  }
-
-  outputParts = outputParts.concat(toParts.slice(samePartsLength));
-
-  return outputParts.join('/');
-};
-
-exports.sep = '/';
-exports.delimiter = ':';
-
-exports.dirname = function(path) {
-  var result = splitPath(path),
-      root = result[0],
-      dir = result[1];
-
-  if (!root && !dir) {
-    // No dirname whatsoever
-    return '.';
-  }
-
-  if (dir) {
-    // It has a dirname, strip trailing slash
-    dir = dir.substr(0, dir.length - 1);
-  }
-
-  return root + dir;
-};
-
-
-exports.basename = function(path, ext) {
-  var f = splitPath(path)[2];
-  // TODO: make this comparison case-insensitive on windows?
-  if (ext && f.substr(-1 * ext.length) === ext) {
-    f = f.substr(0, f.length - ext.length);
-  }
-  return f;
-};
-
-
-exports.extname = function(path) {
-  return splitPath(path)[3];
-};
-
-function filter (xs, f) {
-    if (xs.filter) return xs.filter(f);
-    var res = [];
-    for (var i = 0; i < xs.length; i++) {
-        if (f(xs[i], i, xs)) res.push(xs[i]);
-    }
-    return res;
-}
-
-// String.prototype.substr - negative index don't work in IE8
-var substr = 'ab'.substr(-1) === 'b'
-    ? function (str, start, len) { return str.substr(start, len) }
-    : function (str, start, len) {
-        if (start < 0) start = str.length + start;
-        return str.substr(start, len);
-    }
-;
-
-}).call(this,require('_process'))
-},{"_process":20}],20:[function(require,module,exports){
-// shim for using process in browser
-var process = module.exports = {};
-
-// cached from whatever global is present so that test runners that stub it
-// don't break things.  But we need to wrap it in a try catch in case it is
-// wrapped in strict mode code which doesn't define any globals.  It's inside a
-// function because try/catches deoptimize in certain engines.
-
-var cachedSetTimeout;
-var cachedClearTimeout;
-
-function defaultSetTimout() {
-    throw new Error('setTimeout has not been defined');
-}
-function defaultClearTimeout () {
-    throw new Error('clearTimeout has not been defined');
-}
-(function () {
-    try {
-        if (typeof setTimeout === 'function') {
-            cachedSetTimeout = setTimeout;
-        } else {
-            cachedSetTimeout = defaultSetTimout;
-        }
-    } catch (e) {
-        cachedSetTimeout = defaultSetTimout;
-    }
-    try {
-        if (typeof clearTimeout === 'function') {
-            cachedClearTimeout = clearTimeout;
-        } else {
-            cachedClearTimeout = defaultClearTimeout;
-        }
-    } catch (e) {
-        cachedClearTimeout = defaultClearTimeout;
-    }
-} ())
-function runTimeout(fun) {
-    if (cachedSetTimeout === setTimeout) {
-        //normal enviroments in sane situations
-        return setTimeout(fun, 0);
-    }
-    // if setTimeout wasn't available but was latter defined
-    if ((cachedSetTimeout === defaultSetTimout || !cachedSetTimeout) && setTimeout) {
-        cachedSetTimeout = setTimeout;
-        return setTimeout(fun, 0);
-    }
-    try {
-        // when when somebody has screwed with setTimeout but no I.E. maddness
-        return cachedSetTimeout(fun, 0);
-    } catch(e){
-        try {
-            // When we are in I.E. but the script has been evaled so I.E. doesn't trust the global object when called normally
-            return cachedSetTimeout.call(null, fun, 0);
-        } catch(e){
-            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error
-            return cachedSetTimeout.call(this, fun, 0);
-        }
-    }
-
-
-}
-function runClearTimeout(marker) {
-    if (cachedClearTimeout === clearTimeout) {
-        //normal enviroments in sane situations
-        return clearTimeout(marker);
-    }
-    // if clearTimeout wasn't available but was latter defined
-    if ((cachedClearTimeout === defaultClearTimeout || !cachedClearTimeout) && clearTimeout) {
-        cachedClearTimeout = clearTimeout;
-        return clearTimeout(marker);
-    }
-    try {
-        // when when somebody has screwed with setTimeout but no I.E. maddness
-        return cachedClearTimeout(marker);
-    } catch (e){
-        try {
-            // When we are in I.E. but the script has been evaled so I.E. doesn't  trust the global object when called normally
-            return cachedClearTimeout.call(null, marker);
-        } catch (e){
-            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error.
-            // Some versions of I.E. have different rules for clearTimeout vs setTimeout
-            return cachedClearTimeout.call(this, marker);
-        }
-    }
-
-
-
-}
-var queue = [];
-var draining = false;
-var currentQueue;
-var queueIndex = -1;
-
-function cleanUpNextTick() {
-    if (!draining || !currentQueue) {
-        return;
-    }
-    draining = false;
-    if (currentQueue.length) {
-        queue = currentQueue.concat(queue);
-    } else {
-        queueIndex = -1;
-    }
-    if (queue.length) {
-        drainQueue();
-    }
-}
-
-function drainQueue() {
-    if (draining) {
-        return;
-    }
-    var timeout = runTimeout(cleanUpNextTick);
-    draining = true;
-
-    var len = queue.length;
-    while(len) {
-        currentQueue = queue;
-        queue = [];
-        while (++queueIndex < len) {
-            if (currentQueue) {
-                currentQueue[queueIndex].run();
-            }
-        }
-        queueIndex = -1;
-        len = queue.length;
-    }
-    currentQueue = null;
-    draining = false;
-    runClearTimeout(timeout);
-}
-
-process.nextTick = function (fun) {
-    var args = new Array(arguments.length - 1);
-    if (arguments.length > 1) {
-        for (var i = 1; i < arguments.length; i++) {
-            args[i - 1] = arguments[i];
-        }
-    }
-    queue.push(new Item(fun, args));
-    if (queue.length === 1 && !draining) {
-        runTimeout(drainQueue);
-    }
-};
-
-// v8 likes predictible objects
-function Item(fun, array) {
-    this.fun = fun;
-    this.array = array;
-}
-Item.prototype.run = function () {
-    this.fun.apply(null, this.array);
-};
-process.title = 'browser';
-process.browser = true;
-process.env = {};
-process.argv = [];
-process.version = ''; // empty string to avoid regexp issues
-process.versions = {};
-
-function noop() {}
-
-process.on = noop;
-process.addListener = noop;
-process.once = noop;
-process.off = noop;
-process.removeListener = noop;
-process.removeAllListeners = noop;
-process.emit = noop;
-process.prependListener = noop;
-process.prependOnceListener = noop;
-
-process.listeners = function (name) { return [] }
-
-process.binding = function (name) {
-    throw new Error('process.binding is not supported');
-};
-
-process.cwd = function () { return '/' };
-process.chdir = function (dir) {
-    throw new Error('process.chdir is not supported');
-};
-process.umask = function() { return 0; };
-
-},{}],21:[function(require,module,exports){
-(function (global,Buffer){
+(function (global){(function (){
 'use strict'
 
 var bits = require('bit-twiddle')
 var dup = require('dup')
+var Buffer = require('buffer').Buffer
 
 //Legacy pool support
 if(!global.__TYPEDARRAY_POOL) {
   global.__TYPEDARRAY_POOL = {
-      UINT8   : dup([32, 0])
-    , UINT16  : dup([32, 0])
-    , UINT32  : dup([32, 0])
-    , INT8    : dup([32, 0])
-    , INT16   : dup([32, 0])
-    , INT32   : dup([32, 0])
-    , FLOAT   : dup([32, 0])
-    , DOUBLE  : dup([32, 0])
-    , DATA    : dup([32, 0])
-    , UINT8C  : dup([32, 0])
-    , BUFFER  : dup([32, 0])
+      UINT8     : dup([32, 0])
+    , UINT16    : dup([32, 0])
+    , UINT32    : dup([32, 0])
+    , BIGUINT64 : dup([32, 0])
+    , INT8      : dup([32, 0])
+    , INT16     : dup([32, 0])
+    , INT32     : dup([32, 0])
+    , BIGINT64  : dup([32, 0])
+    , FLOAT     : dup([32, 0])
+    , DOUBLE    : dup([32, 0])
+    , DATA      : dup([32, 0])
+    , UINT8C    : dup([32, 0])
+    , BUFFER    : dup([32, 0])
   }
 }
 
 var hasUint8C = (typeof Uint8ClampedArray) !== 'undefined'
+var hasBigUint64 = (typeof BigUint64Array) !== 'undefined'
+var hasBigInt64 = (typeof BigInt64Array) !== 'undefined'
 var POOL = global.__TYPEDARRAY_POOL
 
 //Upgrade pool
 if(!POOL.UINT8C) {
   POOL.UINT8C = dup([32, 0])
+}
+if(!POOL.BIGUINT64) {
+  POOL.BIGUINT64 = dup([32, 0])
+}
+if(!POOL.BIGINT64) {
+  POOL.BIGINT64 = dup([32, 0])
 }
 if(!POOL.BUFFER) {
   POOL.BUFFER = dup([32, 0])
@@ -21874,9 +21618,11 @@ function freeTypedArray(array) {
 exports.freeUint8 =
 exports.freeUint16 =
 exports.freeUint32 =
+exports.freeBigUint64 =
 exports.freeInt8 =
 exports.freeInt16 =
 exports.freeInt32 =
+exports.freeBigInt64 =
 exports.freeFloat32 = 
 exports.freeFloat =
 exports.freeFloat64 = 
@@ -21915,6 +21661,10 @@ exports.malloc = function malloc(n, dtype) {
         return mallocDouble(n)
       case 'uint8_clamped':
         return mallocUint8Clamped(n)
+      case 'bigint64':
+        return mallocBigInt64(n)
+      case 'biguint64':
+        return mallocBigUint64(n)
       case 'buffer':
         return mallocBuffer(n)
       case 'data':
@@ -21988,6 +21738,24 @@ function mallocUint8Clamped(n) {
 }
 exports.mallocUint8Clamped = mallocUint8Clamped
 
+function mallocBigUint64(n) {
+  if(hasBigUint64) {
+    return new BigUint64Array(mallocArrayBuffer(8*n), 0, n)
+  } else {
+    return null;
+  }
+}
+exports.mallocBigUint64 = mallocBigUint64
+
+function mallocBigInt64(n) {
+  if (hasBigInt64) {
+    return new BigInt64Array(mallocArrayBuffer(8*n), 0, n)
+  } else {
+    return null;
+  }
+}
+exports.mallocBigInt64 = mallocBigInt64
+
 function mallocDataView(n) {
   return new DataView(mallocArrayBuffer(n), 0, n)
 }
@@ -22014,13 +21782,16 @@ exports.clearCache = function clearCache() {
     POOL.INT32[i].length = 0
     POOL.FLOAT[i].length = 0
     POOL.DOUBLE[i].length = 0
+    POOL.BIGUINT64[i].length = 0
+    POOL.BIGINT64[i].length = 0
     POOL.UINT8C[i].length = 0
     DATA[i].length = 0
     BUFFER[i].length = 0
   }
 }
-}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},require("buffer").Buffer)
-},{"bit-twiddle":2,"buffer":3,"dup":8}],22:[function(require,module,exports){
+
+}).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"bit-twiddle":2,"buffer":3,"dup":8}],20:[function(require,module,exports){
 "use strict"
 
 function unique_pred(list, compare) {
@@ -22079,7 +21850,7 @@ function unique(list, compare, sorted) {
 
 module.exports = unique
 
-},{}],23:[function(require,module,exports){
+},{}],21:[function(require,module,exports){
 'use strict';
 
 module.exports = {
@@ -22087,7 +21858,7 @@ module.exports = {
   nFloatingValues: 5
 };
 
-},{}],24:[function(require,module,exports){
+},{}],22:[function(require,module,exports){
 'use strict';
 
 module.exports = {
@@ -22102,7 +21873,7 @@ module.exports = {
   array: Array
 };
 
-},{}],25:[function(require,module,exports){
+},{}],23:[function(require,module,exports){
 'use strict';
 
 module.exports = {
@@ -22123,581 +21894,7 @@ module.exports = {
   }
 };
 
-},{}],26:[function(require,module,exports){
-'use strict';
-
-module.exports = function areaSum (h0, w0, H, W, SAT) {
-  var x0 = w0 - 1;
-  var x1 = w0 + W - 1;
-  var y0 = h0 - 1;
-  var y1 = h0 + H - 1;
-  return (w0 !== 0 && h0 !== 0) ? SAT.selection.get(y0, x0) - SAT.selection.get(y1, x0) - SAT.selection.get(y0, x1) + SAT.selection.get(y1, x1)
-    : (w0 === 0 && h0 === 0) ? SAT.selection.get(h0 + H - 1, w0 + W - 1)
-      : (w0 === 0) ? -SAT.selection.get(y0, w0 + W - 1) + SAT.selection.get(h0 + H - 1, w0 + W - 1)
-        : -SAT.selection.get(y1, x0) + SAT.selection.get(y1, x1);
-};
-
-},{}],27:[function(require,module,exports){
-'use strict';
-
-var areaSum = require('./area-sum');
-
-module.exports = function areaValue (h0, w0, H, W, SAT) {
-  return areaSum(h0, w0, H, W, SAT) / (H * W);
-};
-
-},{"./area-sum":26}],28:[function(require,module,exports){
-(function (__dirname){
-'use strict';
-var path = require('path');
-
-var read = require('./read');
-
-var DATA_DIR = path.join(path.resolve(__dirname), '../../data');
-
-function getArray (fileName) {
-  return read(path.join(DATA_DIR, fileName));
-}
-
-var exports = {};
-
-/**
-* @property {NdArray} digit - 28x28 grayscale image with an handwritten digit extracted from MNIST database
-*/
-Object.defineProperty(exports, 'digit', {
-  get: function () {
-    return getArray('five.png');
-  }
-});
-
-/**
-* @property {NdArray} five - 28x28 grayscale image with an handwritten digit extracted from MNIST database
-*/
-Object.defineProperty(exports, 'five', {
-  get: function () {
-    return getArray('five.png');
-  }
-});
-
-/**
-* @property {NdArray} node - 300x600 COLOR image representing Node.js's logo
-*/
-Object.defineProperty(exports, 'node', {
-  get: function () {
-    return getArray('nodejs.png');
-  }
-});
-
-/**
-* @property {NdArray} lena - The standard, yet sometimes controversial Lena test image was scanned from the November 1972 edition of Playboy magazine. From an image processing perspective, this image is useful because it contains smooth, textured, shaded as well as detail areas.
-*/
-Object.defineProperty(exports, 'lena', {
-  get: function () {
-    return getArray('lenna.png');
-  }
-});
-
-/**
-* @property {NdArray} lenna - The standard, yet sometimes controversial Lena test image was scanned from the November 1972 edition of Playboy magazine. From an image processing perspective, this image is useful because it contains smooth, textured, shaded as well as detail areas.
-*/
-Object.defineProperty(exports, 'lenna', {
-  get: function () {
-    return getArray('lenna.png');
-  }
-});
-
-/**
-* @property {NdArray} moon - This low-contrast image of the surface of the moon is useful for illustrating histogram equalization and contrast stretching.
-*/
-Object.defineProperty(exports, 'moon', {
-  get: function () {
-    return getArray('moon.jpg');
-  }
-});
-
-module.exports = exports;
-
-}).call(this,"/src/images")
-},{"./read":32,"path":19}],29:[function(require,module,exports){
-'use strict';
-
-var NdArray = require('../ndarray');
-
-module.exports = function flipImage (img) {
-  return new NdArray(img.selection.step(null, -1));
-};
-
-},{"../ndarray":42}],30:[function(require,module,exports){
-'use strict';
-
-/**
- * This callback type is called `imgCallback` and is displayed as a global symbol.
- *
- * @callback imgCallback
- * @param {err} error - if any, null otherwise
- * @param {NdArray} - image represented as a (H, W, [K,]) array, with K the number of color channels. if image is grayscale (or B&W) then image only have two dimensions H and W
- */
-
-module.exports = {
-  data: require('./data'),
-  read: require('./read'),
-  save: require('./save'),
-  resize: require('./resize'),
-  sat: require('./sat'),
-  ssat: require('./ssat'),
-  sobel: require('./sobel'),
-  scharr: require('./scharr'),
-  areaSum: require('./area-sum'),
-  areaValue: require('./area-value'),
-  rgb2gray: require('./rgb2gray'),
-  flip: require('./flip')
-};
-
-},{"./area-sum":26,"./area-value":27,"./data":28,"./flip":29,"./read":32,"./resize":33,"./rgb2gray":34,"./sat":35,"./save":36,"./scharr":37,"./sobel":38,"./ssat":39}],31:[function(require,module,exports){
-'use strict';
-
-
-var NdArray = require('../ndarray');
-
-var doCheckIsGrayscale = require('cwise/lib/wrapper')({"args":["array","array","array"],"pre":{"body":"{this_isgray=!0}","args":[],"thisVars":["this_isgray"],"localVars":[]},"body":{"body":"{_inline_82_arg0_===_inline_82_arg1_&&_inline_82_arg1_===_inline_82_arg2_||(this_isgray=!1)}","args":[{"name":"_inline_82_arg0_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_82_arg1_","lvalue":false,"rvalue":true,"count":2},{"name":"_inline_82_arg2_","lvalue":false,"rvalue":true,"count":1}],"thisVars":["this_isgray"],"localVars":[]},"post":{"body":"{return this_isgray}","args":[],"thisVars":["this_isgray"],"localVars":[]},"debug":false,"funcName":"doCheckIsGrayscaleCwise","blockSize":64});
-
-module.exports = function isGrayscaleImage (arr) {
-  if (arr instanceof NdArray) {
-    arr = arr.selection;
-  }
-  var aShape = arr.shape;
-  if (aShape.length === 1) {
-    return false;
-  }
-  if (aShape.length === 2 || aShape.length === 3 && aShape[2] === 1) {
-    return true;
-  } else if (aShape.length === 3 && (aShape[2] === 3 || aShape[2] === 4)) {
-    return doCheckIsGrayscale(arr.pick(null, null, 0), arr.pick(null, null, 1), arr.pick(null, null, 2));
-  }
-  return false;
-};
-
-},{"../ndarray":42,"cwise/lib/wrapper":7}],32:[function(require,module,exports){
-'use strict';
-
-/* global HTMLCanvasElement */
-
-var ndarray = require('ndarray');
-var NdArray = require('../ndarray');
-var errors = require('../errors');
-var isGrayscale = require('./is-grayscale');
-
-module.exports = function readImageDom (input) {
-  if (input instanceof HTMLCanvasElement) {
-    return processCanvas(input);
-  } else if (input instanceof HTMLImageElement) {
-    return processImg(input);
-  } else {
-    throw new errors.ValueError('expect input to be either an HTML Canvas or a (loaded) Image');
-  }
-};
-
-function processCanvas (canvas) {
-  var context = canvas.getContext('2d');
-  var pixels = context.getImageData(0, 0, canvas.width, canvas.height);
-
-  var shape = [canvas.width, canvas.height, 4];
-  var stride = [4, 4 * canvas.width, 1];
-  var wxh = ndarray(new Uint8Array(pixels.data), shape, stride, 0);
-  var hxw = wxh.transpose(1, 0);
-
-  if (isGrayscale(hxw)) {
-    hxw = hxw.pick(null, null, 0);
-  }
-  return new NdArray(hxw);
-}
-
-function processImg (img) {
-  var canvas = document.createElement('canvas');
-  canvas.width = img.width;
-  canvas.height = img.height;
-  var context = canvas.getContext('2d');
-  context.drawImage(img, 0, 0);
-  var pixels = context.getImageData(0, 0, img.width, img.height);
-
-  var shape = [img.width, img.height, 4];
-  var stride = [4, 4 * img.width, 1];
-  var wxh = ndarray(new Uint8Array(pixels.data), shape, stride, 0);
-  var hxw = wxh.transpose(1, 0);
-
-  if (isGrayscale(hxw)) {
-    hxw = hxw.pick(null, null, 0);
-  }
-  return new NdArray(hxw);
-}
-
-},{"../errors":25,"../ndarray":42,"./is-grayscale":31,"ndarray":18}],33:[function(require,module,exports){
-'use strict';
-
-var _ = require('./utils');
-var ndarray = require('ndarray');
-var NdArray = require('../ndarray');
-
-module.exports = function resizeImageDom (img, height, width) {
-  var iShape = img.shape;
-  var H = iShape[0];
-  var W = iShape[1];
-  var K = iShape[2] || 1;
-  var originalCanvas = document.createElement('canvas');
-  originalCanvas.height = H; originalCanvas.width = W;
-
-  var originalCtx = originalCanvas.getContext('2d');
-  var originalImg = originalCtx.createImageData(W, H);
-  var err = _.setRawData(img.selection, originalImg.data);
-  if (err) { throw err; }
-
-  // compute cropping
-  var cfH = H / height;
-  var cfW = W / width;
-  var cf = Math.min(cfH, cfW);
-  var cH = height * cf;
-  var cW = width * cf;
-  var cdH = (H - cf * height) / 2;
-  var cdW = (W - cf * width) / 2;
-
-  originalCtx.putImageData(originalImg, 0, 0);
-  originalCtx.drawImage(originalCanvas, cdW, cdH, cW, cH, 0, 0, width, height);
-
-  var resizedImg = originalCtx.getImageData(0, 0, width, height);
-  var shape = [width | 0, height | 0, 4];
-  var stride = [4, 4 * width | 0, 1];
-  var wxh = ndarray(new Uint8Array(resizedImg.data), shape, stride, 0);
-  var hxw = wxh.transpose(1, 0);
-  if (iShape.length === 2) {
-    hxw = hxw.pick(null, null, 0);
-  } else if (iShape.length === 3 && K === 1) {
-    hxw = hxw.pick(null, null, 0);
-  }
-  return new NdArray(hxw);
-};
-
-},{"../ndarray":42,"./utils":40,"ndarray":18}],34:[function(require,module,exports){
-'use strict';
-
-
-var NdArray = require('../ndarray');
-var __ = require('../utils');
-
-// takes ~157ms on a 5000x5000 image
-var doRgb2gray = require('cwise/lib/wrapper')({"args":["array","array","array","array"],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{_inline_79_arg0_=4899*_inline_79_arg1_+9617*_inline_79_arg2_+1868*_inline_79_arg3_+8192>>14}","args":[{"name":"_inline_79_arg0_","lvalue":true,"rvalue":false,"count":1},{"name":"_inline_79_arg1_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_79_arg2_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_79_arg3_","lvalue":false,"rvalue":true,"count":1}],"thisVars":[],"localVars":[]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"debug":false,"funcName":"rgb2grayCwise","blockSize":64});
-
-/**
- * Compute Grayscale version of an RGB image.
- * @param {NdArray}  img The image in RGB format. In a 3-D array of shape (h, w, 3), or in RGBA format with shape (h, w, 4).
- * @returns {NdArray} The grayscale image, a 3-D array  of shape (h, w, 1).
- */
-module.exports = function rgb2gray (img) {
-  if (!(img instanceof NdArray)) {
-    img = new NdArray(img); // assume it is an ndarray
-  }
-  var iShape = img.shape;
-  var h = iShape[0];
-  var w = iShape[1];
-  var k = (iShape[2] || 1);
-  if (k === 1) {
-    return img; // already gray
-  }
-  var oShape = [h, w];
-  var out = new NdArray(new Uint8Array(__.shapeSize(oShape)), oShape);
-  var r = img.selection.pick(null, null, 0);
-  var g = img.selection.pick(null, null, 1);
-  var b = img.selection.pick(null, null, 2);
-  doRgb2gray(out.selection, r, g, b);
-
-  return out;
-};
-
-},{"../ndarray":42,"../utils":43,"cwise/lib/wrapper":7}],35:[function(require,module,exports){
-'use strict';
-
-
-var NdArray = require('../ndarray');
-var rgb2gray = require('./rgb2gray');
-
-var doIntegrate = require('cwise/lib/wrapper')({"args":["array","array","index",{"offset":[-1,-1],"array":0},{"offset":[-1,0],"array":0},{"offset":[0,-1],"array":0}],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{_inline_67_arg0_=0!==_inline_67_arg2_[0]&&0!==_inline_67_arg2_[1]?_inline_67_arg1_+_inline_67_arg4_+_inline_67_arg5_-_inline_67_arg3_:0===_inline_67_arg2_[0]&&0===_inline_67_arg2_[1]?_inline_67_arg1_:0===_inline_67_arg2_[0]?_inline_67_arg1_+_inline_67_arg5_:_inline_67_arg1_+_inline_67_arg4_}","args":[{"name":"_inline_67_arg0_","lvalue":true,"rvalue":false,"count":1},{"name":"_inline_67_arg1_","lvalue":false,"rvalue":true,"count":4},{"name":"_inline_67_arg2_","lvalue":false,"rvalue":true,"count":5},{"name":"_inline_67_arg3_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_67_arg4_","lvalue":false,"rvalue":true,"count":2},{"name":"_inline_67_arg5_","lvalue":false,"rvalue":true,"count":2}],"thisVars":[],"localVars":[]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"debug":false,"funcName":"doIntegrateBody","blockSize":64});
-
-/**
- * Compute Sum Area Table, also known as the integral of the image
- * @param {NdArray} img
- * @returns {NdArray}
- */
-module.exports = function computeSumAreaTable (img) {
-  var gray = rgb2gray(img);
-  var iShape = gray.shape;
-  var iH = iShape[0];
-  var iW = iShape[1];
-  var out = new NdArray(new Uint32Array(iH * iW), [iH, iW]);
-
-  doIntegrate(out.selection, gray.selection);
-
-  return out;
-};
-
-},{"../ndarray":42,"./rgb2gray":34,"cwise/lib/wrapper":7}],36:[function(require,module,exports){
-'use strict';
-
-var _ = require('./utils');
-var errors = require('../errors');
-
-/**
- * Save image on the given destination
- *
- * @param {NdArray} img
- * @param {HTMLCanvasElement} dest
- */
-module.exports = function saveImageDom (img, dest) {
-  var iShape = img.shape;
-  var iH = iShape[0];
-  var iW = iShape[1];
-  if (dest instanceof HTMLCanvasElement) {
-    var $tmp = document.createElement('canvas');
-    $tmp.height = iH; $tmp.width = iW;
-    var tmpCtx = $tmp.getContext('2d');
-    var originalImg = tmpCtx.createImageData(iW, iH);
-    var err = _.setRawData(img.selection, originalImg.data);
-
-    if (err) { throw err; }
-
-    tmpCtx.putImageData(originalImg, 0, 0);
-    tmpCtx.drawImage($tmp, iW, iH);
-    dest.getContext('2d').drawImage($tmp, 0, 0, iW, iH, 0, 0, dest.width, dest.height);
-  } else {
-    throw new errors.ValueError('expect input to be either an HTML Canvas or a (loaded) Image');
-  }
-};
-
-},{"../errors":25,"./utils":40}],37:[function(require,module,exports){
-'use strict';
-
-
-var ops = require('ndarray-ops');
-var NdArray = require('../ndarray');
-var __ = require('../utils');
-var rgb2gray = require('./rgb2gray');
-
-var doScharr = require('cwise/lib/wrapper')({"args":["array","array",{"offset":[-1,-1],"array":1},{"offset":[-1,0],"array":1},{"offset":[-1,1],"array":1},{"offset":[0,-1],"array":1},{"offset":[0,1],"array":1},{"offset":[1,-1],"array":1},{"offset":[1,0],"array":1},{"offset":[1,1],"array":1}],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{var _inline_70_q=3*_inline_70_arg2_+10*_inline_70_arg3_+3*_inline_70_arg4_-3*_inline_70_arg7_-10*_inline_70_arg8_-3*_inline_70_arg9_,_inline_70_s=3*_inline_70_arg2_-3*_inline_70_arg4_+10*_inline_70_arg5_-10*_inline_70_arg6_+3*_inline_70_arg7_-3*_inline_70_arg9_;_inline_70_arg0_=Math.sqrt(_inline_70_s*_inline_70_s+_inline_70_q*_inline_70_q)}","args":[{"name":"_inline_70_arg0_","lvalue":true,"rvalue":false,"count":1},{"name":"_inline_70_arg1_","lvalue":false,"rvalue":false,"count":0},{"name":"_inline_70_arg2_","lvalue":false,"rvalue":true,"count":2},{"name":"_inline_70_arg3_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_70_arg4_","lvalue":false,"rvalue":true,"count":2},{"name":"_inline_70_arg5_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_70_arg6_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_70_arg7_","lvalue":false,"rvalue":true,"count":2},{"name":"_inline_70_arg8_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_70_arg9_","lvalue":false,"rvalue":true,"count":2}],"thisVars":[],"localVars":["_inline_70_q","_inline_70_s"]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"debug":false,"funcName":"doSobelBody","blockSize":64});
-
-/**
- * Find the edge magnitude using the Scharr transform.
- *
- * @note
- * Take the square root of the sum of the squares of the horizontal and vertical Scharrs to get a magnitude
- * that is somewhat insensitive to direction. The Scharr operator has a better rotation invariance than other
- * edge filters, such as the Sobel operators.
- *
- * @param {NdArray} img
- */
-module.exports = function computeScharr (img) {
-  var gray = rgb2gray(img);
-  var iShape = gray.shape;
-  var iH = iShape[0];
-  var iW = iShape[1];
-  var out = new NdArray(new Float32Array(__.shapeSize(iShape)), iShape);
-
-  doScharr(out.selection, gray.selection);
-
-  // set borders to zero (invalid anyway)
-  ops.assigns(out.selection.pick(0, null), 0); // first line
-  ops.assigns(out.selection.pick(null, 0), 0); // first col
-  ops.assigns(out.selection.pick(iH - 1, null), 0); // last line
-  ops.assigns(out.selection.pick(null, iW - 1), 0); // last col
-
-  return out.divide(16 * Math.sqrt(2), false);
-};
-
-},{"../ndarray":42,"../utils":43,"./rgb2gray":34,"cwise/lib/wrapper":7,"ndarray-ops":17}],38:[function(require,module,exports){
-'use strict';
-
-
-var ops = require('ndarray-ops');
-var NdArray = require('../ndarray');
-var __ = require('../utils');
-var rgb2gray = require('./rgb2gray');
-
-var doSobel = require('cwise/lib/wrapper')({"args":["array","array",{"offset":[-1,-1],"array":1},{"offset":[-1,0],"array":1},{"offset":[-1,1],"array":1},{"offset":[0,-1],"array":1},{"offset":[0,1],"array":1},{"offset":[1,-1],"array":1},{"offset":[1,0],"array":1},{"offset":[1,1],"array":1}],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{var _inline_76_q=_inline_76_arg2_+2*_inline_76_arg3_+_inline_76_arg4_-_inline_76_arg7_-2*_inline_76_arg8_-_inline_76_arg9_,_inline_76_s=_inline_76_arg2_-_inline_76_arg4_+2*_inline_76_arg5_-2*_inline_76_arg6_+_inline_76_arg7_-_inline_76_arg9_;_inline_76_arg0_=Math.sqrt(_inline_76_s*_inline_76_s+_inline_76_q*_inline_76_q)}","args":[{"name":"_inline_76_arg0_","lvalue":true,"rvalue":false,"count":1},{"name":"_inline_76_arg1_","lvalue":false,"rvalue":false,"count":0},{"name":"_inline_76_arg2_","lvalue":false,"rvalue":true,"count":2},{"name":"_inline_76_arg3_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_76_arg4_","lvalue":false,"rvalue":true,"count":2},{"name":"_inline_76_arg5_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_76_arg6_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_76_arg7_","lvalue":false,"rvalue":true,"count":2},{"name":"_inline_76_arg8_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_76_arg9_","lvalue":false,"rvalue":true,"count":2}],"thisVars":[],"localVars":["_inline_76_q","_inline_76_s"]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"debug":false,"funcName":"doSobelBody","blockSize":64});
-
-/**
- * Find the edge magnitude using the Sobel transform.
- *
- * @note
- * Take the square root of the sum of the squares of the horizontal and vertical Sobels to get a magnitude that’s somewhat insensitive to direction.
- *
- * The 3x3 convolution kernel used in the horizontal and vertical Sobels is an approximation of the
- * gradient of the image (with some slight blurring since 9 pixels are used to compute the gradient at a given pixel).
- * As an approximation of the gradient, the Sobel operator is not completely rotation-invariant. The Scharr operator should be used for a better rotation invariance.
- * @param {NdArray} img
- */
-module.exports = function computeSobel (img) {
-  var gray = rgb2gray(img);
-  var iShape = gray.shape;
-  var iH = iShape[0];
-  var iW = iShape[1];
-
-  var out = new NdArray(new Float32Array(__.shapeSize(iShape)), iShape);
-
-  doSobel(out.selection, gray.selection);
-
-  // set borders to zero (invalid anyway)
-  ops.assigns(out.selection.pick(0, null), 0); // first line
-  ops.assigns(out.selection.pick(null, 0), 0); // first col
-  ops.assigns(out.selection.pick(iH - 1, null), 0); // last line
-  ops.assigns(out.selection.pick(null, iW - 1), 0); // last col
-
-  return out.divide(4 * Math.sqrt(2), false);
-};
-
-},{"../ndarray":42,"../utils":43,"./rgb2gray":34,"cwise/lib/wrapper":7,"ndarray-ops":17}],39:[function(require,module,exports){
-'use strict';
-
-
-var NdArray = require('../ndarray');
-var rgb2gray = require('./rgb2gray');
-
-var doIntegrate = require('cwise/lib/wrapper')({"args":["array","array","index",{"offset":[-1,-1],"array":0},{"offset":[-1,0],"array":0},{"offset":[0,-1],"array":0}],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{_inline_73_arg0_=0!==_inline_73_arg2_[0]&&0!==_inline_73_arg2_[1]?_inline_73_arg1_*_inline_73_arg1_+_inline_73_arg4_+_inline_73_arg5_-_inline_73_arg3_:0===_inline_73_arg2_[0]&&0===_inline_73_arg2_[1]?_inline_73_arg1_*_inline_73_arg1_:0===_inline_73_arg2_[0]?_inline_73_arg1_*_inline_73_arg1_+_inline_73_arg5_:_inline_73_arg1_*_inline_73_arg1_+_inline_73_arg4_}","args":[{"name":"_inline_73_arg0_","lvalue":true,"rvalue":false,"count":1},{"name":"_inline_73_arg1_","lvalue":false,"rvalue":true,"count":8},{"name":"_inline_73_arg2_","lvalue":false,"rvalue":true,"count":5},{"name":"_inline_73_arg3_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_73_arg4_","lvalue":false,"rvalue":true,"count":2},{"name":"_inline_73_arg5_","lvalue":false,"rvalue":true,"count":2}],"thisVars":[],"localVars":[]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"debug":false,"funcName":"doIntegrateBody","blockSize":64});
-
-/**
- * Compute Squared Sum Area Table, also known as the integral of the squared image
- * @param {NdArray} img
- * @returns {NdArray}
- */
-module.exports = function computeSquaredSumAreaTable (img) {
-  var gray = rgb2gray(img);
-  var iShape = gray.shape;
-  var iH = iShape[0];
-  var iW = iShape[1];
-
-  var out = new NdArray(new Uint32Array(iH * iW), [iH, iW]);
-
-  doIntegrate(out.selection, gray.selection);
-
-  return out;
-};
-
-},{"../ndarray":42,"./rgb2gray":34,"cwise/lib/wrapper":7}],40:[function(require,module,exports){
-'use strict';
-
-var NdArray = require('../ndarray');
-
-/**
- *
- * @param {NdArray} array
- * @returns {*}
- */
-module.exports.getRawData = function getRawData (array) {
-  if (array instanceof NdArray) {
-    array = array.selection; // faster
-  }
-
-  var h;
-  var w;
-  var ptr = 0;
-  var aShape = array.shape;
-  var H = aShape[0];
-  var W = aShape[1];
-  var K = (aShape[2] || 1);
-  var data = new Uint8Array(H * W * K);
-
-  if (array.shape.length === 3) {
-    if (K === 3) {
-      for (h = 0; h < H; ++h) {
-        for (w = 0; w < W; ++w) {
-          data[ptr++] = array.get(h, w, 0);
-          data[ptr++] = array.get(h, w, 1);
-          data[ptr++] = array.get(h, w, 2);
-        }
-      }
-    } else if (K === 4) {
-      for (h = 0; h < H; ++h) {
-        for (w = 0; w < W; ++w) {
-          data[ptr++] = array.get(h, w, 0);
-          data[ptr++] = array.get(h, w, 1);
-          data[ptr++] = array.get(h, w, 2);
-          data[ptr++] = array.get(h, w, 3);
-        }
-      }
-    } else if (K === 1) {
-      for (h = 0; h < H; ++h) {
-        for (w = 0; w < W; ++w) {
-          data[ptr++] = array.get(h, w, 0);
-        }
-      }
-    } else {
-      return new Error('Incompatible array shape');
-    }
-  } else if (array.shape.length === 2) {
-    for (h = 0; h < H; ++h) {
-      for (w = 0; w < W; ++w) {
-        data[ptr++] = array.get(h, w);
-      }
-    }
-  } else {
-    return new Error('Invalid image');
-  }
-  return data;
-};
-
-module.exports.setRawData = function setRawData (array, data) {
-  var h;
-  var w;
-  var ptr = 0;
-  var c;
-  var H = array.shape[0];
-  var W = array.shape[1];
-  var K = array.shape[2] || 1;
-
-  if (array.shape.length === 3) {
-    if (K === 3) {
-      for (h = 0; h < H; ++h) {
-        for (w = 0; w < W; ++w) {
-          data[ptr++] = array.get(h, w, 0);
-          data[ptr++] = array.get(h, w, 1);
-          data[ptr++] = array.get(h, w, 2);
-          data[ptr++] = 255;
-        }
-      }
-    } else if (K === 4) {
-      for (h = 0; h < H; ++h) {
-        for (w = 0; w < W; ++w) {
-          data[ptr++] = array.get(h, w, 0);
-          data[ptr++] = array.get(h, w, 1);
-          data[ptr++] = array.get(h, w, 2);
-          data[ptr++] = array.get(h, w, 3);
-        }
-      }
-    } else if (K === 1) {
-      for (h = 0; h < H; ++h) {
-        for (w = 0; w < W; ++w) {
-          c = array.get(h, w, 0);
-          data[ptr++] = c;
-          data[ptr++] = c;
-          data[ptr++] = c;
-          data[ptr++] = 255;
-        }
-      }
-    } else {
-      return new Error('Incompatible array shape');
-    }
-  } else if (array.shape.length === 2) {
-    for (h = 0; h < H; ++h) {
-      for (w = 0; w < W; ++w) {
-        c = array.get(h, w);
-        data[ptr++] = c;
-        data[ptr++] = c;
-        data[ptr++] = c;
-        data[ptr++] = 255;
-      }
-    }
-  } else {
-    return new Error('Invalid image');
-  }
-};
-
-},{"../ndarray":42}],41:[function(require,module,exports){
+},{}],24:[function(require,module,exports){
 'use strict';
 
 var ndarray = require('ndarray');
@@ -23064,7 +22261,7 @@ function softmax (x) {
   return e;
 }
 
-var doSigmoid = require('cwise/lib/wrapper')({"args":["array","scalar"],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{_inline_43_arg0_=_inline_43_arg0_<-30?0:_inline_43_arg0_>30?1:1/(1+Math.exp(-1*_inline_43_arg1_*_inline_43_arg0_))}","args":[{"name":"_inline_43_arg0_","lvalue":true,"rvalue":true,"count":4},{"name":"_inline_43_arg1_","lvalue":false,"rvalue":true,"count":1}],"thisVars":[],"localVars":[]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"debug":false,"funcName":"sigmoidCwise","blockSize":64});
+var doSigmoid = require('cwise/lib/wrapper')({"args":["array","scalar"],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{_inline_25_arg0_=_inline_25_arg0_<-30?0:_inline_25_arg0_>30?1:1/(1+Math.exp(-1*_inline_25_arg1_*_inline_25_arg0_))}","args":[{"name":"_inline_25_arg0_","lvalue":true,"rvalue":true,"count":4},{"name":"_inline_25_arg1_","lvalue":false,"rvalue":true,"count":1}],"thisVars":[],"localVars":[]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"debug":false,"funcName":"sigmoidCwise","blockSize":64});
 
 /**
  * Return the sigmoid of the input array, element-wise.
@@ -23079,7 +22276,7 @@ function sigmoid (x, t) {
   return x;
 }
 
-var doClip = require('cwise/lib/wrapper')({"args":["array","scalar","scalar"],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{_inline_46_arg0_=Math.min(Math.max(_inline_46_arg1_,_inline_46_arg0_),_inline_46_arg2_)}","args":[{"name":"_inline_46_arg0_","lvalue":true,"rvalue":true,"count":2},{"name":"_inline_46_arg1_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_46_arg2_","lvalue":false,"rvalue":true,"count":1}],"thisVars":[],"localVars":[]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"debug":false,"funcName":"clipCwise","blockSize":64});
+var doClip = require('cwise/lib/wrapper')({"args":["array","scalar","scalar"],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{_inline_28_arg0_=Math.min(Math.max(_inline_28_arg1_,_inline_28_arg0_),_inline_28_arg2_)}","args":[{"name":"_inline_28_arg0_","lvalue":true,"rvalue":true,"count":2},{"name":"_inline_28_arg1_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_28_arg2_","lvalue":false,"rvalue":true,"count":1}],"thisVars":[],"localVars":[]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"debug":false,"funcName":"clipCwise","blockSize":64});
 
 /**
  * Clip (limit) the values in an array between min and max, element-wise.
@@ -23101,7 +22298,7 @@ function clip (x, min, max) {
   return s;
 }
 
-var doLeakyRelu = require('cwise/lib/wrapper')({"args":["array","scalar"],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{_inline_49_arg0_=Math.max(_inline_49_arg1_*_inline_49_arg0_,_inline_49_arg0_)}","args":[{"name":"_inline_49_arg0_","lvalue":true,"rvalue":true,"count":3},{"name":"_inline_49_arg1_","lvalue":false,"rvalue":true,"count":1}],"thisVars":[],"localVars":[]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"debug":false,"funcName":"leakyReluCwise","blockSize":64});
+var doLeakyRelu = require('cwise/lib/wrapper')({"args":["array","scalar"],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{_inline_31_arg0_=Math.max(_inline_31_arg1_*_inline_31_arg0_,_inline_31_arg0_)}","args":[{"name":"_inline_31_arg0_","lvalue":true,"rvalue":true,"count":3},{"name":"_inline_31_arg1_","lvalue":false,"rvalue":true,"count":1}],"thisVars":[],"localVars":[]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"debug":false,"funcName":"leakyReluCwise","blockSize":64});
 
 function leakyRelu (x, alpha) {
   alpha = alpha || 1e-3;
@@ -23110,7 +22307,7 @@ function leakyRelu (x, alpha) {
   return s;
 }
 
-var doTanh = require('cwise/lib/wrapper')({"args":["array"],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{_inline_52_arg0_=(Math.exp(2*_inline_52_arg0_)-1)/(Math.exp(2*_inline_52_arg0_)+1)}","args":[{"name":"_inline_52_arg0_","lvalue":true,"rvalue":true,"count":3}],"thisVars":[],"localVars":[]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"debug":false,"funcName":"tanhCwise","blockSize":64});
+var doTanh = require('cwise/lib/wrapper')({"args":["array"],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{_inline_34_arg0_=(Math.exp(2*_inline_34_arg0_)-1)/(Math.exp(2*_inline_34_arg0_)+1)}","args":[{"name":"_inline_34_arg0_","lvalue":true,"rvalue":true,"count":3}],"thisVars":[],"localVars":[]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"debug":false,"funcName":"tanhCwise","blockSize":64});
 
 /**
  * Return hyperbolic tangent of the input array, element-wise.
@@ -23536,11 +22733,10 @@ module.exports = {
   int32: function (array) { return NdArray.new(array, 'int32'); },
   uint32: function (array) { return NdArray.new(array, 'uint32'); },
   float32: function (array) { return NdArray.new(array, 'float32'); },
-  float64: function (array) { return NdArray.new(array, 'float64'); },
-  images: require('./images')
+  float64: function (array) { return NdArray.new(array, 'float64'); }
 };
 
-},{"./config":23,"./dtypes":24,"./errors":25,"./images":30,"./ndarray":42,"./utils":43,"cwise/lib/wrapper":7,"ndarray":18,"ndarray-fft":13,"ndarray-ops":17}],42:[function(require,module,exports){
+},{"./config":21,"./dtypes":22,"./errors":23,"./ndarray":25,"./utils":26,"cwise/lib/wrapper":7,"ndarray":18,"ndarray-fft":13,"ndarray-ops":17}],25:[function(require,module,exports){
 'use strict';
 
 var ndarray = require('ndarray');
@@ -24335,11 +23531,11 @@ NdArray.prototype.iteraxis = function (axis, cb) {
   }
 };
 
-var doConjMuleq = require('cwise/lib/wrapper')({"args":["array","array","array","array"],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{var _inline_55_c=_inline_55_arg2_,_inline_55_f=_inline_55_arg3_,_inline_55_i=_inline_55_arg0_,_inline_55_o=_inline_55_arg1_,_inline_55_t=_inline_55_i*(_inline_55_c+_inline_55_f);_inline_55_arg0_=_inline_55_t-_inline_55_f*(_inline_55_i+_inline_55_o),_inline_55_arg1_=_inline_55_t+_inline_55_c*(_inline_55_o-_inline_55_i)}","args":[{"name":"_inline_55_arg0_","lvalue":true,"rvalue":true,"count":2},{"name":"_inline_55_arg1_","lvalue":true,"rvalue":true,"count":2},{"name":"_inline_55_arg2_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_55_arg3_","lvalue":false,"rvalue":true,"count":1}],"thisVars":[],"localVars":["_inline_55_c","_inline_55_f","_inline_55_i","_inline_55_o","_inline_55_t"]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"debug":false,"funcName":"cwise","blockSize":64});
+var doConjMuleq = require('cwise/lib/wrapper')({"args":["array","array","array","array"],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{var _inline_37_c=_inline_37_arg2_,_inline_37_f=_inline_37_arg3_,_inline_37_i=_inline_37_arg0_,_inline_37_o=_inline_37_arg1_,_inline_37_t=_inline_37_i*(_inline_37_c+_inline_37_f);_inline_37_arg0_=_inline_37_t-_inline_37_f*(_inline_37_i+_inline_37_o),_inline_37_arg1_=_inline_37_t+_inline_37_c*(_inline_37_o-_inline_37_i)}","args":[{"name":"_inline_37_arg0_","lvalue":true,"rvalue":true,"count":2},{"name":"_inline_37_arg1_","lvalue":true,"rvalue":true,"count":2},{"name":"_inline_37_arg2_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_37_arg3_","lvalue":false,"rvalue":true,"count":1}],"thisVars":[],"localVars":["_inline_37_c","_inline_37_f","_inline_37_i","_inline_37_o","_inline_37_t"]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"debug":false,"funcName":"cwise","blockSize":64});
 
-var doConvolve3x3 = require('cwise/lib/wrapper')({"args":["array","array","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar",{"offset":[-1,-1],"array":1},{"offset":[-1,0],"array":1},{"offset":[-1,1],"array":1},{"offset":[0,-1],"array":1},{"offset":[0,1],"array":1},{"offset":[1,-1],"array":1},{"offset":[1,0],"array":1},{"offset":[1,1],"array":1}],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{_inline_58_arg0_=_inline_58_arg11_*_inline_58_arg10_+_inline_58_arg12_*_inline_58_arg9_+_inline_58_arg13_*_inline_58_arg8_+_inline_58_arg14_*_inline_58_arg7_+_inline_58_arg1_*_inline_58_arg6_+_inline_58_arg15_*_inline_58_arg5_+_inline_58_arg16_*_inline_58_arg4_+_inline_58_arg17_*_inline_58_arg3_+_inline_58_arg18_*_inline_58_arg2_}","args":[{"name":"_inline_58_arg0_","lvalue":true,"rvalue":false,"count":1},{"name":"_inline_58_arg1_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_58_arg2_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_58_arg3_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_58_arg4_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_58_arg5_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_58_arg6_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_58_arg7_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_58_arg8_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_58_arg9_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_58_arg10_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_58_arg11_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_58_arg12_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_58_arg13_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_58_arg14_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_58_arg15_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_58_arg16_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_58_arg17_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_58_arg18_","lvalue":false,"rvalue":true,"count":1}],"thisVars":[],"localVars":[]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"debug":false,"funcName":"cwise","blockSize":64});
+var doConvolve3x3 = require('cwise/lib/wrapper')({"args":["array","array","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar",{"offset":[-1,-1],"array":1},{"offset":[-1,0],"array":1},{"offset":[-1,1],"array":1},{"offset":[0,-1],"array":1},{"offset":[0,1],"array":1},{"offset":[1,-1],"array":1},{"offset":[1,0],"array":1},{"offset":[1,1],"array":1}],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{_inline_40_arg0_=_inline_40_arg11_*_inline_40_arg10_+_inline_40_arg12_*_inline_40_arg9_+_inline_40_arg13_*_inline_40_arg8_+_inline_40_arg14_*_inline_40_arg7_+_inline_40_arg1_*_inline_40_arg6_+_inline_40_arg15_*_inline_40_arg5_+_inline_40_arg16_*_inline_40_arg4_+_inline_40_arg17_*_inline_40_arg3_+_inline_40_arg18_*_inline_40_arg2_}","args":[{"name":"_inline_40_arg0_","lvalue":true,"rvalue":false,"count":1},{"name":"_inline_40_arg1_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_40_arg2_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_40_arg3_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_40_arg4_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_40_arg5_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_40_arg6_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_40_arg7_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_40_arg8_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_40_arg9_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_40_arg10_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_40_arg11_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_40_arg12_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_40_arg13_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_40_arg14_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_40_arg15_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_40_arg16_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_40_arg17_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_40_arg18_","lvalue":false,"rvalue":true,"count":1}],"thisVars":[],"localVars":[]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"debug":false,"funcName":"cwise","blockSize":64});
 
-var doConvolve5x5 = require('cwise/lib/wrapper')({"args":["index","array","array","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar",{"offset":[-2,-2],"array":1},{"offset":[-2,-1],"array":1},{"offset":[-2,0],"array":1},{"offset":[-2,1],"array":1},{"offset":[-2,2],"array":1},{"offset":[-1,-2],"array":1},{"offset":[-1,-1],"array":1},{"offset":[-1,0],"array":1},{"offset":[-1,1],"array":1},{"offset":[-1,2],"array":1},{"offset":[0,-2],"array":1},{"offset":[0,-1],"array":1},{"offset":[0,1],"array":1},{"offset":[0,2],"array":1},{"offset":[1,-2],"array":1},{"offset":[1,-1],"array":1},{"offset":[1,0],"array":1},{"offset":[1,1],"array":1},{"offset":[1,2],"array":1},{"offset":[2,-2],"array":1},{"offset":[2,-1],"array":1},{"offset":[2,0],"array":1},{"offset":[2,1],"array":1},{"offset":[2,2],"array":1}],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{_inline_61_arg1_=_inline_61_arg0_[0]<2||_inline_61_arg0_[1]<2?0:_inline_61_arg28_*_inline_61_arg27_+_inline_61_arg29_*_inline_61_arg26_+_inline_61_arg30_*_inline_61_arg25_+_inline_61_arg31_*_inline_61_arg24_+_inline_61_arg32_*_inline_61_arg23_+_inline_61_arg33_*_inline_61_arg22_+_inline_61_arg34_*_inline_61_arg21_+_inline_61_arg35_*_inline_61_arg20_+_inline_61_arg36_*_inline_61_arg19_+_inline_61_arg37_*_inline_61_arg18_+_inline_61_arg38_*_inline_61_arg17_+_inline_61_arg39_*_inline_61_arg16_+_inline_61_arg2_*_inline_61_arg15_+_inline_61_arg40_*_inline_61_arg14_+_inline_61_arg41_*_inline_61_arg13_+_inline_61_arg42_*_inline_61_arg12_+_inline_61_arg43_*_inline_61_arg11_+_inline_61_arg44_*_inline_61_arg10_+_inline_61_arg45_*_inline_61_arg9_+_inline_61_arg46_*_inline_61_arg8_+_inline_61_arg47_*_inline_61_arg7_+_inline_61_arg48_*_inline_61_arg6_+_inline_61_arg49_*_inline_61_arg5_+_inline_61_arg50_*_inline_61_arg4_+_inline_61_arg51_*_inline_61_arg3_}","args":[{"name":"_inline_61_arg0_","lvalue":false,"rvalue":true,"count":2},{"name":"_inline_61_arg1_","lvalue":true,"rvalue":false,"count":1},{"name":"_inline_61_arg2_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg3_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg4_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg5_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg6_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg7_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg8_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg9_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg10_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg11_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg12_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg13_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg14_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg15_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg16_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg17_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg18_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg19_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg20_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg21_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg22_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg23_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg24_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg25_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg26_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg27_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg28_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg29_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg30_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg31_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg32_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg33_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg34_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg35_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg36_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg37_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg38_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg39_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg40_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg41_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg42_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg43_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg44_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg45_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg46_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg47_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg48_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg49_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg50_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_61_arg51_","lvalue":false,"rvalue":true,"count":1}],"thisVars":[],"localVars":[]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"debug":false,"funcName":"cwise","blockSize":64});
+var doConvolve5x5 = require('cwise/lib/wrapper')({"args":["index","array","array","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar","scalar",{"offset":[-2,-2],"array":1},{"offset":[-2,-1],"array":1},{"offset":[-2,0],"array":1},{"offset":[-2,1],"array":1},{"offset":[-2,2],"array":1},{"offset":[-1,-2],"array":1},{"offset":[-1,-1],"array":1},{"offset":[-1,0],"array":1},{"offset":[-1,1],"array":1},{"offset":[-1,2],"array":1},{"offset":[0,-2],"array":1},{"offset":[0,-1],"array":1},{"offset":[0,1],"array":1},{"offset":[0,2],"array":1},{"offset":[1,-2],"array":1},{"offset":[1,-1],"array":1},{"offset":[1,0],"array":1},{"offset":[1,1],"array":1},{"offset":[1,2],"array":1},{"offset":[2,-2],"array":1},{"offset":[2,-1],"array":1},{"offset":[2,0],"array":1},{"offset":[2,1],"array":1},{"offset":[2,2],"array":1}],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{_inline_43_arg1_=_inline_43_arg0_[0]<2||_inline_43_arg0_[1]<2?0:_inline_43_arg28_*_inline_43_arg27_+_inline_43_arg29_*_inline_43_arg26_+_inline_43_arg30_*_inline_43_arg25_+_inline_43_arg31_*_inline_43_arg24_+_inline_43_arg32_*_inline_43_arg23_+_inline_43_arg33_*_inline_43_arg22_+_inline_43_arg34_*_inline_43_arg21_+_inline_43_arg35_*_inline_43_arg20_+_inline_43_arg36_*_inline_43_arg19_+_inline_43_arg37_*_inline_43_arg18_+_inline_43_arg38_*_inline_43_arg17_+_inline_43_arg39_*_inline_43_arg16_+_inline_43_arg2_*_inline_43_arg15_+_inline_43_arg40_*_inline_43_arg14_+_inline_43_arg41_*_inline_43_arg13_+_inline_43_arg42_*_inline_43_arg12_+_inline_43_arg43_*_inline_43_arg11_+_inline_43_arg44_*_inline_43_arg10_+_inline_43_arg45_*_inline_43_arg9_+_inline_43_arg46_*_inline_43_arg8_+_inline_43_arg47_*_inline_43_arg7_+_inline_43_arg48_*_inline_43_arg6_+_inline_43_arg49_*_inline_43_arg5_+_inline_43_arg50_*_inline_43_arg4_+_inline_43_arg51_*_inline_43_arg3_}","args":[{"name":"_inline_43_arg0_","lvalue":false,"rvalue":true,"count":2},{"name":"_inline_43_arg1_","lvalue":true,"rvalue":false,"count":1},{"name":"_inline_43_arg2_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg3_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg4_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg5_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg6_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg7_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg8_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg9_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg10_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg11_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg12_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg13_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg14_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg15_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg16_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg17_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg18_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg19_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg20_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg21_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg22_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg23_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg24_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg25_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg26_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg27_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg28_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg29_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg30_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg31_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg32_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg33_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg34_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg35_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg36_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg37_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg38_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg39_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg40_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg41_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg42_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg43_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg44_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg45_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg46_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg47_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg48_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg49_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg50_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_43_arg51_","lvalue":false,"rvalue":true,"count":1}],"thisVars":[],"localVars":[]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"debug":false,"funcName":"cwise","blockSize":64});
 
 /**
 * Returns the discrete, linear convolution of the array using the given filter.
@@ -24594,7 +23790,7 @@ function initNativeArray (shape, i) {
   return result;
 }
 
-var doUnpack = require('cwise/lib/wrapper')({"args":["array","scalar","index"],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{var _inline_64_a,_inline_64_e=_inline_64_arg1_;for(_inline_64_a=0;_inline_64_a<_inline_64_arg2_.length-1;++_inline_64_a)_inline_64_e=_inline_64_e[_inline_64_arg2_[_inline_64_a]];_inline_64_e[_inline_64_arg2_[_inline_64_arg2_.length-1]]=_inline_64_arg0_}","args":[{"name":"_inline_64_arg0_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_64_arg1_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_64_arg2_","lvalue":false,"rvalue":true,"count":4}],"thisVars":[],"localVars":["_inline_64_a","_inline_64_e"]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"debug":false,"funcName":"unpackCwise","blockSize":64});
+var doUnpack = require('cwise/lib/wrapper')({"args":["array","scalar","index"],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{var _inline_46_a,_inline_46_e=_inline_46_arg1_;for(_inline_46_a=0;_inline_46_a<_inline_46_arg2_.length-1;++_inline_46_a)_inline_46_e=_inline_46_e[_inline_46_arg2_[_inline_46_a]];_inline_46_e[_inline_46_arg2_[_inline_46_arg2_.length-1]]=_inline_46_arg0_}","args":[{"name":"_inline_46_arg0_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_46_arg1_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_46_arg2_","lvalue":false,"rvalue":true,"count":4}],"thisVars":[],"localVars":["_inline_46_a","_inline_46_e"]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"debug":false,"funcName":"unpackCwise","blockSize":64});
 
 function unpackArray (arr) {
   var result = initNativeArray(arr.shape, 0);
@@ -24606,7 +23802,7 @@ function formatNumber (v) {
   return String(Number((v || 0).toFixed(CONF.nFloatingValues)));
 }
 
-},{"./config":23,"./errors":25,"./utils":43,"cwise/lib/wrapper":7,"ndarray":18,"ndarray-fft":13,"ndarray-gemm":15,"ndarray-ops":17,"typedarray-pool":21}],43:[function(require,module,exports){
+},{"./config":21,"./errors":23,"./utils":26,"cwise/lib/wrapper":7,"ndarray":18,"ndarray-fft":13,"ndarray-gemm":15,"ndarray-ops":17,"typedarray-pool":19}],26:[function(require,module,exports){
 'use strict';
 var DTYPES = require('./dtypes');
 var _ = require('lodash');
@@ -24699,5 +23895,5 @@ module.exports = {
   defaults: _.defaults
 };
 
-},{"./dtypes":24,"lodash":12}]},{},[41])(41)
+},{"./dtypes":22,"lodash":12}]},{},[24])(24)
 });
